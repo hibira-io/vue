@@ -5,7 +5,7 @@
 // Kept identical in @hibira-io/react and @hibira-io/vue.
 //
 // Tokens are batched: one event per `interval` ms rather than one per token,
-// so a 1,000-token answer costs tens of messages, not a thousand. Each event
+// so a model writing 50 tokens a second sends about 10 events a second. Each event
 // stays under `maxBytes` (Free plans allow 4 KB per message), and events are
 // sent one after another so they arrive in order.
 

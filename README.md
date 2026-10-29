@@ -178,8 +178,9 @@ read `streams` for all of them (by id, each
 It resolves to `{ id, text, events }` once the last event is sent, and
 rejects when the source or the HTTP API fails, after telling subscribers.
 
-How it works: tokens are batched, so a 1,000-token answer costs a few dozen
-messages rather than a thousand. Each event carries a sequence number and
+How it works: tokens are batched into one event per `interval` (100 ms by
+default), so a model writing 50 tokens a second sends about 10 events a
+second rather than 50. Each event carries a sequence number and
 `useStream()` applies them in order. The last event carries the whole text
 when it fits in one message, so someone who subscribed halfway through, or
 whose connection dropped for a moment, still ends with the full answer;
