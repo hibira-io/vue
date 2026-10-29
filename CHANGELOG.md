@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+The package homepage on npm now links to https://hibira.io. No code changes.
+
 ## 0.1.0
 
 First release for Vue 3 and Vue 2.7: `createHibira()`, `useHibira`, `usePusher`, `useChannel` (shared,
