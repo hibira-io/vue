@@ -1,0 +1,198 @@
+# @hibira-io/vue
+
+[![npm](https://img.shields.io/npm/v/@hibira-io/vue)](https://www.npmjs.com/package/@hibira-io/vue)
+[![ci](https://github.com/hibira-io/vue/actions/workflows/ci.yml/badge.svg)](https://github.com/hibira-io/vue/actions/workflows/ci.yml)
+
+Vue composables for [pusher-js](https://github.com/pusher/pusher-js) on
+[Hibira](https://hibira.io), or any Pusher-compatible server: one connection
+for the app, channels shared between components, events, presence members,
+connection state and client events. It also streams LLM output to the
+browser: `streamToChannel()` sends tokens from your backend in batched
+events, and `useStream()` puts them back together, for every tab and every
+person on the channel at once.
+
+- Vue 3 and Vue 2.7 (which has the Composition API built in).
+- Server rendering safe: nothing connects on the server. For Nuxt 3, 4 and 2,
+  [@hibira-io/nuxt](https://github.com/hibira-io/nuxt) wires this up for you.
+- Channel names can be refs or getters; the subscription follows them.
+- Works with Laravel Echo: pass `echo.connector.pusher` as the client.
+- Plain ESM with TypeScript types, no build step, no dependencies besides
+  `pusher-js`.
+
+Using React? See [@hibira-io/react](https://github.com/hibira-io/react).
+
+## Install
+
+```sh
+npm install @hibira-io/vue pusher-js
+```
+
+## Setup
+
+The app key is in the Hibira portal; it is public.
+
+```js
+// Vue 3
+import { createApp } from 'vue';
+import { createHibira } from '@hibira-io/vue';
+
+createApp(App)
+  .use(createHibira({
+    appKey: import.meta.env.VITE_HIBIRA_KEY,
+    options: { channelAuthorization: { endpoint: '/api/hibira/auth', transport: 'ajax' } },
+  }))
+  .mount('#app');
+```
+
+```js
+// Vue 2.7
+import Vue from 'vue';
+import { createHibira } from '@hibira-io/vue';
+
+Vue.use(createHibira({ appKey: process.env.VUE_APP_HIBIRA_KEY }));
+```
+
+`options` are [pusher-js options](https://github.com/pusher/pusher-js#configuration),
+merged over the Hibira defaults (`wsHost: 'ws.hibira.io'`, `forceTLS`, and the
+`cluster` pusher-js insists on). For a local server set `wsHost`, `wsPort` and
+`forceTLS: false`. The connection opens the first time a component needs it.
+
+With Laravel Echo, reuse its connection:
+
+```js
+app.use(createHibira({ client: () => window.Echo.connector.pusher }));
+```
+
+## Composables
+
+```vue
+<script setup>
+import { ref } from 'vue';
+import { useEvent, usePresence, useTrigger, useConnectionState } from '@hibira-io/vue';
+
+const props = defineProps({ roomId: String });
+const orders = ref([]);
+useEvent('orders', 'order.created', (order) => orders.value.unshift(order));
+
+const room = () => `presence-room-${props.roomId}`; // follows the prop
+const { members, others, me, count } = usePresence(room);
+const trigger = useTrigger(room);
+useEvent(room, 'client-typing', (data, { user_id }) => showTyping(user_id));
+
+const state = useConnectionState(); // 'connecting' | 'connected' | 'unavailable' | ...
+</script>
+
+<template>
+  <span :class="state" /> {{ count }} here
+  <input @input="trigger('client-typing', {})" />
+</template>
+```
+
+| Composable | Returns |
+| --- | --- |
+| `usePusher()` | the pusher-js client, or `null` on the server |
+| `useChannel(name)` | a ref to the channel; subscribed while the component lives, shared by every component using the same name; `null` subscribes to nothing |
+| `useEvent(channel, event, handler)` | the channel ref; calls `handler(data, metadata)` |
+| `usePresence(channel)` | refs `{ members, others, me, count, channel }`; members are `{ id, info, me }`, you first; `info` is the `user_info` your auth endpoint signed |
+| `useTrigger(channel)` | `trigger('client-…', data)`, `false` until subscribed; turn on client events for the app in the portal |
+| `useConnectionState()` | a ref: `'initialized'`, `'connecting'`, `'connected'`, `'unavailable'`, `'failed'` or `'disconnected'` |
+| `useStream(channel, { id, event })` | refs `{ text, done, error, stream, streams }` and `reset()`, see below |
+
+Wherever a composable takes a channel, pass a name (it subscribes), a
+channel object you already have (Echo's `Echo.private('x').subscription`), or
+a ref or getter of either. They also work inside `effectScope()` outside
+components; the scope's `stop()` cleans up.
+
+## Streaming LLM output
+
+Send the model's stream from your backend with `streamToChannel()`. It
+takes the stream of the Anthropic, OpenAI and Gemini SDKs and the Vercel AI
+SDK as they are, an async iterable of strings, or a `ReadableStream`.
+
+```js
+// server/api/ask.post.js (Nuxt); any Node backend works the same way
+import Pusher from 'pusher';
+import OpenAI from 'openai';
+import { streamToChannel } from '@hibira-io/vue/server';
+
+const pusher = new Pusher({
+  appId: process.env.HIBIRA_APP_ID,
+  key: process.env.HIBIRA_KEY,
+  secret: process.env.HIBIRA_SECRET,
+  host: 'ws.hibira.io', // the host shown on your app page
+  useTLS: true,
+});
+const openai = new OpenAI();
+
+export default defineEventHandler(async (event) => {
+  const { conversationId, question } = await readBody(event);
+  const stream = await openai.chat.completions.create({
+    model: 'gpt-5',
+    stream: true,
+    messages: [{ role: 'user', content: question }],
+  });
+  // Don't await: answer the request now and keep streaming to the channel.
+  const id = crypto.randomUUID();
+  event.waitUntil(
+    streamToChannel(pusher, `private-conversation-${conversationId}`, stream, { id, meta: { role: 'assistant' } })
+      .catch((err) => console.error('stream failed', err)),
+  );
+  return { id };
+});
+```
+
+Then in the browser:
+
+```vue
+<script setup>
+import { useStream } from '@hibira-io/vue';
+
+const props = defineProps({ conversationId: String });
+const { text, done, error } = useStream(() => `private-conversation-${props.conversationId}`);
+</script>
+
+<template>
+  <p :aria-busy="!done">{{ text }}<em v-if="error"> (stopped: {{ error }})</em></p>
+</template>
+```
+
+Every subscriber sees the same answer as it is written: other tabs, other
+devices, teammates in a shared conversation. `useStream()` follows the stream
+that started last; pass `{ id }` (a value, ref or getter) to follow one, or
+read `streams` for all of them (by id, each
+`{ id, text, done, error, meta, incomplete }`).
+
+`streamToChannel(pusher, channel, source, options)` options:
+
+| Option | Default | |
+| --- | --- | --- |
+| `id` | random UUID | stream id, also returned |
+| `event` | `'ai-stream'` | event name |
+| `interval` | `100` | ms to gather tokens into one event |
+| `maxBytes` | `3500` | largest event; Free plans allow 4 KB per message |
+| `meta` | | JSON sent with the first event (model, message id, author) |
+| `pick` | | `(chunk) => text` for a source it does not know |
+| `socketId` | | leave out the sender's own connection |
+| `signal` | | an `AbortSignal` to stop; subscribers get `error: 'aborted'` |
+
+It resolves to `{ id, text, events }` once the last event is sent, and
+rejects when the source or the HTTP API fails, after telling subscribers.
+
+How it works: tokens are batched, so a 1,000-token answer costs a few dozen
+messages rather than a thousand. Each event carries a sequence number and
+`useStream()` applies them in order. The last event carries the whole text
+when it fits in one message, so someone who subscribed halfway through, or
+whose connection dropped for a moment, still ends with the full answer;
+otherwise their stream is marked `incomplete`.
+
+Use a private or presence channel for anything personal, so only the people
+your auth endpoint allows can subscribe.
+
+## Vue 2 notes
+
+Vue 2 plugins are global, so every component uses the plugin installed last;
+one connection per page is the usual setup anyway.
+
+## Licence
+
+MIT
