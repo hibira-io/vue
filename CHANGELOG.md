@@ -9,6 +9,11 @@
   the app.
 - `followStream(channel, { apply, event, rewind })`, the same for any
   pusher-js channel; `event` may list several event names.
+- `useAgentStream(channel, { rewind })` for Laravel AI SDK agents
+  broadcast with hibira-io/laravel (`broadcastOnQueue()`): text,
+  reasoning, tool calls, approvals and status per run, with events split
+  into `hibira:chunk` pieces joined back together. `createAgentStore()` is
+  the same without the framework.
 
 ## 0.1.1
 
