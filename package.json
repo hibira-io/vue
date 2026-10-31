@@ -49,6 +49,8 @@
     "client.d.ts",
     "stream.js",
     "stream.d.ts",
+    "agent.js",
+    "agent.d.ts",
     "server.js",
     "server.d.ts",
     "README.md",

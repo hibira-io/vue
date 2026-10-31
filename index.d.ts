@@ -3,11 +3,14 @@ import type Pusher from 'pusher-js';
 import type { Options } from 'pusher-js';
 import type { Member } from './client.js';
 import type { HistoryResult, RewindOptions, Stream } from './stream.js';
+import type { AgentRun, AgentRunStatus, AgentToolCall } from './agent.js';
 
 export type { Member } from './client.js';
 export type { HistoryResult, RewindOptions, Stream, StreamPayload, StreamStore } from './stream.js';
 export { HIBIRA_DEFAULTS, hibiraOptions } from './client.js';
 export { STREAM_EVENT, createStreamStore, followStream } from './stream.js';
+export type { AgentPart, AgentRun, AgentRunStatus, AgentStore, AgentToolCall } from './agent.js';
+export { AGENT_EVENTS, CHUNK_EVENT, createAgentStore } from './agent.js';
 
 /** A pusher-js channel (PresenceChannel and PrivateChannel included). */
 export type Channel = ReturnType<Pusher['subscribe']>;
@@ -98,6 +101,38 @@ export interface StreamState<Meta = any> {
 }
 
 export function useStream<Meta = any>(target: ChannelTarget, options?: UseStreamOptions): StreamState<Meta>;
+
+export interface UseAgentStreamOptions {
+  /** Follow only this run (the invocation id of broadcastOnQueue()). */
+  invocationId?: Source<string | null | undefined>;
+  /** Runs kept, default 20. */
+  maxRuns?: number;
+  /** Catch up from channel history (pusher:rewind) on each subscription. Hobby plans and up. */
+  rewind?: boolean | RewindOptions;
+  /** Extra event names to listen to, such as a provider's own error types. */
+  events?: string[];
+}
+
+export interface AgentStreamState {
+  channel: ComputedRef<Channel | null>;
+  /** The run with invocationId, or else the one that started last. */
+  run: ComputedRef<AgentRun | null>;
+  runs: ShallowRef<Record<string, AgentRun>>;
+  text: ComputedRef<string>;
+  reasoning: ComputedRef<string>;
+  /** "idle" before the first event. */
+  status: ComputedRef<AgentRunStatus | 'idle'>;
+  done: ComputedRef<boolean>;
+  error: ComputedRef<string | null>;
+  toolCalls: ComputedRef<AgentToolCall[]>;
+  approvals: ComputedRef<any[]>;
+  history: ShallowRef<HistoryResult | null>;
+  /** Forget every run. */
+  reset(): void;
+}
+
+/** A Laravel AI SDK agent stream (laravel/ai broadcastOnQueue()), put back together. */
+export function useAgentStream(target: ChannelTarget, options?: UseAgentStreamOptions): AgentStreamState;
 
 declare module 'vue' {
   interface ComponentCustomProperties {

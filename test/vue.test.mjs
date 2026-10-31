@@ -12,6 +12,7 @@ import {
   useHibira,
   usePresence,
   usePusher,
+  useAgentStream,
   useStream,
   useTrigger,
 } from '../index.js';
@@ -188,6 +189,29 @@ test(`[vue ${Vue.version}] useStream with an id ref and a custom event`, async (
   assert.equal(out.text.value, 'yes');
   id.value = 'other';
   assert.equal(out.stream.value, null);
+});
+
+test(`[vue ${Vue.version}] useAgentStream follows Laravel AI events, chunks and rewind`, async () => {
+  const invocationId = ref(null);
+  const { out, pusher } = setup(() => useAgentStream('private-hibira-ai.user.1', { rewind: true, invocationId }));
+  assert.equal(out.status.value, 'idle');
+  const ch = pusher.succeed('private-hibira-ai.user.1');
+  assert.equal(pusher.log.at(-1)[1], 'pusher:rewind');
+  const e = (id, type, fields) => ({ id, invocation_id: 'inv', type, ...fields });
+  ch.emit('stream_start', e('1', 'stream_start', { model: 'm' }));
+  ch.emit('text_delta', e('2', 'text_delta', { delta: 'Hi' }));
+  ch.emit('pusher:rewind_succeeded', { count: 1, window: 600, complete: true });
+  ch.emit('text_delta', e('2', 'text_delta', { delta: 'Hi' }));
+  assert.equal(out.text.value, 'Hi');
+  const json = JSON.stringify(e('3', 'tool_result', { tool_id: 't', result: 'x'.repeat(300), successful: true }));
+  ch.emit('hibira:chunk', { id: 'c', event: 'tool_result', index: 1, count: 2, data: json.slice(150) });
+  ch.emit('hibira:chunk', { id: 'c', event: 'tool_result', index: 0, count: 2, data: json.slice(0, 150) });
+  assert.equal(out.toolCalls.value[0].result, 'x'.repeat(300));
+  ch.emit('tool_approval_request', e('4', 'tool_approval_request', { approvals: [{ id: 'a' }] }));
+  assert.equal(out.status.value, 'awaiting_approval');
+  assert.deepEqual(out.approvals.value, [{ id: 'a' }]);
+  invocationId.value = 'other';
+  assert.equal(out.run.value, null);
 });
 
 test(`[vue ${Vue.version}] in a component: plugin provided, state synced on mount, cleanup on unmount`, async () => {
