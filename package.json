@@ -1,6 +1,6 @@
 {
   "name": "@hibira-io/vue",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Vue 3 and Vue 2.7 composables for pusher-js on Hibira and other Pusher-compatible servers: shared channels, events, presence, connection state, client events, and LLM token streaming with streamToChannel",
   "keywords": [
     "vue",
@@ -49,6 +49,8 @@
     "client.d.ts",
     "stream.js",
     "stream.d.ts",
+    "agent.js",
+    "agent.d.ts",
     "server.js",
     "server.d.ts",
     "README.md",

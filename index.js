@@ -13,10 +13,12 @@
 import { computed, getCurrentInstance, inject, isRef, onMounted, onScopeDispose, shallowRef, watch } from 'vue';
 import Pusher from 'pusher-js';
 import { acquireChannel, hibiraOptions, isClientEvent, presenceMembers, releaseChannel } from './client.js';
-import { STREAM_EVENT, createStreamStore, latestStream } from './stream.js';
+import { STREAM_EVENT, createStreamStore, followStream, latestStream } from './stream.js';
+import { AGENT_EVENTS, createAgentStore, latestRun } from './agent.js';
 
 export { HIBIRA_DEFAULTS, hibiraOptions } from './client.js';
-export { STREAM_EVENT, createStreamStore } from './stream.js';
+export { STREAM_EVENT, createStreamStore, followStream } from './stream.js';
+export { AGENT_EVENTS, CHUNK_EVENT, createAgentStore } from './agent.js';
 
 export const HIBIRA_KEY = Symbol.for('hibira');
 
@@ -255,21 +257,51 @@ export function useTrigger(target) {
  * @param {string} [options.event="ai-stream"] event name
  * @param {string|import('vue').Ref|(() => string)} [options.id] follow only this stream id
  * @param {number} [options.maxStreams=50] streams kept, oldest dropped first
- * @returns {{stream, streams, text, done, error, reset, channel}} refs;
+ * @param {boolean|object} [options.rewind] catch up from channel history on
+ *   each subscription: true, or { seconds = 300, limit, timeout = 5000 }
+ * @returns {{stream, streams, text, done, error, history, reset, channel}} refs;
  *   `stream` is the one with `id`, or else the one that started last
  */
-export function useStream(target, { event = STREAM_EVENT, id, maxStreams = 50 } = {}) {
+export function useStream(target, { event = STREAM_EVENT, id, maxStreams = 50, rewind } = {}) {
+  const pusher = usePusher();
+  const channel = useTarget(target);
   const streams = shallowRef({});
+  const history = shallowRef(null);
   const store = createStreamStore(
     (next) => {
       streams.value = next;
     },
     { maxStreams },
   );
-  const channel = useEvent(target, event, (payload) => {
-    const want = read(id);
-    if (want != null && String(payload?.id) !== String(want)) return;
-    store.apply(payload);
+  let stopFollowing = null;
+  const unfollow = () => {
+    stopFollowing?.();
+    stopFollowing = null;
+  };
+  const stop = watch(
+    () => [channel.value, read(event)],
+    ([ch, ev]) => {
+      unfollow();
+      if (!ch || !ev) return;
+      stopFollowing = followStream(ch, {
+        event: ev,
+        client: ch.pusher ?? pusher,
+        rewind,
+        onHistory: (result) => {
+          history.value = result;
+        },
+        apply: (payload) => {
+          const want = read(id);
+          if (want != null && String(payload?.id) !== String(want)) return;
+          store.apply(payload);
+        },
+      });
+    },
+    { immediate: true },
+  );
+  onScopeDispose(() => {
+    stop();
+    unfollow();
   });
   const stream = computed(() => {
     const want = read(id);
@@ -283,6 +315,81 @@ export function useStream(target, { event = STREAM_EVENT, id, maxStreams = 50 } 
     text: computed(() => stream.value?.text ?? ''),
     done: computed(() => stream.value?.done ?? false),
     error: computed(() => stream.value?.error ?? null),
+    history,
+    reset: store.reset,
+  };
+}
+
+/**
+ * A Laravel AI SDK agent's stream (laravel/ai broadcastOnQueue(), broadcast()
+ * or broadcastNow()), put back together: text, reasoning, tool calls and
+ * approvals. Events hibira-io/laravel split into chunks are joined.
+ *
+ * @param target channel name, channel, or a ref/getter of either, e.g.
+ *   `private-hibira-ai.user.${user.id}` (AgentChannel::user() in Laravel)
+ * @param {object} [options]
+ * @param {string|import('vue').Ref|(() => string)} [options.invocationId] follow only this run
+ * @param {number} [options.maxRuns=20] runs kept, oldest dropped first
+ * @param {boolean|object} [options.rewind] catch up from channel history on
+ *   each subscription: true, or { seconds = 300, limit, timeout = 5000 }
+ * @param {string[]} [options.events] extra event names to listen to
+ * @returns {{run, runs, text, reasoning, status, done, error, toolCalls, approvals, history, reset, channel}} refs;
+ *   `run` is the one with `invocationId`, or else the one that started last
+ */
+export function useAgentStream(target, { invocationId, maxRuns = 20, rewind, events } = {}) {
+  const pusher = usePusher();
+  const channel = useTarget(target);
+  const runs = shallowRef({});
+  const history = shallowRef(null);
+  const store = createAgentStore(
+    (next) => {
+      runs.value = next;
+    },
+    { maxRuns },
+  );
+  let stopFollowing = null;
+  const unfollow = () => {
+    stopFollowing?.();
+    stopFollowing = null;
+  };
+  const stop = watch(
+    channel,
+    (ch) => {
+      unfollow();
+      if (!ch) return;
+      stopFollowing = followStream(ch, {
+        event: events?.length ? [...AGENT_EVENTS, ...events] : AGENT_EVENTS,
+        client: ch.pusher ?? pusher,
+        rewind,
+        onHistory: (result) => {
+          history.value = result;
+        },
+        apply: (payload, name) => store.apply(payload, name),
+      });
+    },
+    { immediate: true },
+  );
+  onScopeDispose(() => {
+    stop();
+    unfollow();
+  });
+  const run = computed(() => {
+    const want = read(invocationId);
+    return want != null ? runs.value[String(want)] ?? null : latestRun(runs.value);
+  });
+
+  return {
+    channel,
+    run,
+    runs,
+    text: computed(() => run.value?.text ?? ''),
+    reasoning: computed(() => run.value?.reasoning ?? ''),
+    status: computed(() => run.value?.status ?? 'idle'),
+    done: computed(() => run.value?.done ?? false),
+    error: computed(() => run.value?.error ?? null),
+    toolCalls: computed(() => run.value?.toolCalls ?? []),
+    approvals: computed(() => run.value?.approvals ?? []),
+    history,
     reset: store.reset,
   };
 }

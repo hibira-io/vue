@@ -65,6 +65,10 @@ export function fakePusher() {
     channel(name) {
       return channels.get(name);
     },
+    send_event(event, data, channel) {
+      log.push(['send_event', event, data, channel]);
+      return true;
+    },
     disconnect() {
       log.push(['disconnect']);
       pusher.setState('disconnected');
