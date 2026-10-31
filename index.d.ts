@@ -2,12 +2,12 @@ import type { ComputedRef, Ref, ShallowRef } from 'vue';
 import type Pusher from 'pusher-js';
 import type { Options } from 'pusher-js';
 import type { Member } from './client.js';
-import type { Stream } from './stream.js';
+import type { HistoryResult, RewindOptions, Stream } from './stream.js';
 
 export type { Member } from './client.js';
-export type { Stream, StreamPayload, StreamStore } from './stream.js';
+export type { HistoryResult, RewindOptions, Stream, StreamPayload, StreamStore } from './stream.js';
 export { HIBIRA_DEFAULTS, hibiraOptions } from './client.js';
-export { STREAM_EVENT, createStreamStore } from './stream.js';
+export { STREAM_EVENT, createStreamStore, followStream } from './stream.js';
 
 /** A pusher-js channel (PresenceChannel and PrivateChannel included). */
 export type Channel = ReturnType<Pusher['subscribe']>;
@@ -75,6 +75,12 @@ export interface UseStreamOptions {
   id?: Source<string | null | undefined>;
   /** Streams kept, default 50. */
   maxStreams?: number;
+  /**
+   * Catch up from channel history (pusher:rewind) on each subscription, so a
+   * reload or a dropped connection does not lose chunks. Needs channel
+   * history on for the app (Hobby plans and up).
+   */
+  rewind?: boolean | RewindOptions;
 }
 
 export interface StreamState<Meta = any> {
@@ -85,6 +91,8 @@ export interface StreamState<Meta = any> {
   text: ComputedRef<string>;
   done: ComputedRef<boolean>;
   error: ComputedRef<string | null>;
+  /** The last rewind's result, or null before one (or without `rewind`). */
+  history: ShallowRef<HistoryResult | null>;
   /** Forget every stream. */
   reset(): void;
 }

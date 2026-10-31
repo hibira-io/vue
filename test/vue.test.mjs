@@ -164,6 +164,20 @@ test(`[vue ${Vue.version}] useStream`, async () => {
   assert.equal(out.stream.value, null);
 });
 
+test(`[vue ${Vue.version}] useStream with rewind catches up after subscribing`, async () => {
+  const { out, pusher } = setup(() => useStream('private-ai', { rewind: { seconds: 120 } }));
+  assert.equal(out.history.value, null);
+  const ch = pusher.succeed('private-ai');
+  assert.deepEqual(pusher.log.at(-1), ['send_event', 'pusher:rewind', { channel: 'private-ai', seconds: 120 }, 'private-ai']);
+  ch.emit('ai-stream', { id: 's1', seq: 1, delta: 'lo' });
+  ch.emit('ai-stream', { id: 's1', seq: 0, delta: 'Hel' });
+  assert.equal(out.text.value, '', 'held until the history answers');
+  ch.emit('pusher:rewind_succeeded', { count: 1, window: 3600, complete: true });
+  assert.equal(out.text.value, 'Hello');
+  assert.equal(out.stream.value.incomplete, false);
+  assert.deepEqual(out.history.value, { count: 1, window: 3600, complete: true });
+});
+
 test(`[vue ${Vue.version}] useStream with an id ref and a custom event`, async () => {
   const id = ref('mine');
   const { out, pusher } = setup(() => useStream('private-ai', { id, event: 'answer' }));

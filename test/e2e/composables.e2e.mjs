@@ -124,3 +124,50 @@ test(`[vue ${Vue.version}] composables on a real server: presence, client events
     for (const p of plugins) p.disconnect();
   }
 });
+
+// Needs channel history on for the app (history: true, history_seconds > 0).
+test(`[vue ${Vue.version}] useStream rewind: a reload mid-answer, then a dropped connection`, { skip: skip || (!env.HIBIRA_E2E_HISTORY && 'set HIBIRA_E2E_HISTORY=1 (app with channel history)') }, async () => {
+  const ai = `private-ai-rewind-${Date.now()}`;
+  const parts = Array.from({ length: 90 }, (_, i) => `p${i} `);
+  const gates = [];
+  const waits = [0, 1].map((n) => new Promise((r) => (gates[n] = r)));
+  async function* llm() {
+    for (let i = 0; i < parts.length; i++) {
+      if (i === 30) await waits[0];
+      if (i === 60) await waits[1];
+      yield parts[i];
+    }
+  }
+  const sending = streamToChannel(server, ai, llm(), { interval: 10 });
+  await new Promise((r) => setTimeout(r, 300)); // a third is out before the page loads
+
+  const hibira = createHibira({ appKey: env.HIBIRA_E2E_KEY, options: options('u', 'U') });
+  if (vue2) Vue.use(hibira);
+  let view;
+  const unmount = mount(hibira, () => {
+    view = { state: useConnectionState(), s: useStream(ai, { rewind: true }) };
+  });
+  await waitFor(() => view.s.history.value, 'rewind answer');
+  assert.equal(view.s.history.value.error, undefined, view.s.history.value.error);
+  const first = parts.slice(0, 30).join('');
+  await waitFor(() => view.s.text.value.length >= first.length, 'first third');
+  assert.equal(view.s.text.value, first);
+
+  hibira.client.disconnect();
+  await waitFor(() => view.state.value === 'disconnected', 'disconnected');
+  gates[0]();
+  await new Promise((r) => setTimeout(r, 500)); // the middle third goes out while offline
+  hibira.client.connect();
+  const middle = parts.slice(0, 60).join('');
+  await waitFor(() => view.s.text.value.length >= middle.length, 'middle third after reconnect');
+  assert.equal(view.s.text.value, middle);
+  assert.equal(view.s.done.value, false);
+
+  gates[1]();
+  const res = await sending;
+  await waitFor(() => view.s.done.value, 'done');
+  assert.equal(view.s.text.value, res.text);
+  assert.equal(view.s.stream.value.incomplete, false);
+  unmount();
+  hibira.client.disconnect();
+});

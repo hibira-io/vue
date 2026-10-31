@@ -96,7 +96,7 @@ const state = useConnectionState(); // 'connecting' | 'connected' | 'unavailable
 | `usePresence(channel)` | refs `{ members, others, me, count, channel }`; members are `{ id, info, me }`, you first; `info` is the `user_info` your auth endpoint signed |
 | `useTrigger(channel)` | `trigger('client-…', data)`, `false` until subscribed; turn on client events for the app in the portal |
 | `useConnectionState()` | a ref: `'initialized'`, `'connecting'`, `'connected'`, `'unavailable'`, `'failed'` or `'disconnected'` |
-| `useStream(channel, { id, event })` | refs `{ text, done, error, stream, streams }` and `reset()`, see below |
+| `useStream(channel, { id, event, rewind })` | refs `{ text, done, error, stream, streams, history }` and `reset()`, see below |
 
 Wherever a composable takes a channel, pass a name (it subscribes), a
 channel object you already have (Echo's `Echo.private('x').subscription`), or
@@ -223,6 +223,35 @@ second rather than 50. Each event carries a sequence number and
 when it fits in one message, so someone who subscribed halfway through, or
 whose connection dropped for a moment, still ends with the full answer;
 otherwise their stream is marked `incomplete`.
+
+### Reloads and dropped connections: `rewind`
+
+Turn on channel history for the app (app settings in the Hibira portal,
+Hobby plans and up) and pass `rewind`, and nothing is lost: a page reloaded
+halfway through an answer, or a phone that lost signal for a few seconds,
+picks the answer up from its first token.
+
+```js
+const { text, done, history } = useStream(() => `private-conversation-${props.conversationId}`, { rewind: true });
+```
+
+Each time the channel is subscribed, the first time and again after a
+reconnect, `useStream()` asks the server for the events it missed
+(`pusher:rewind`): the last 300 seconds the first time, the time since the
+last event after a reconnect. Live events are held for that moment and
+everything is applied in order, without duplicates.
+
+| `rewind` option | Default | |
+| --- | --- | --- |
+| `seconds` | `300` | history asked for on the first subscription (the app's history window caps it) |
+| `limit` | all kept | at most this many events |
+| `timeout` | `5000` | ms to wait for the server before going on without history |
+
+`history` is a ref to the last answer: `{ count, window, complete }`, or
+`{ error }` when history is off or not in the app's plan (the stream then
+works as without `rewind`). Replayed events reach every listener on the
+channel. `followStream(channel, { apply, rewind })` does the same for any
+pusher-js channel.
 
 Use a private or presence channel for anything personal, so only the people
 your auth endpoint allows can subscribe.
