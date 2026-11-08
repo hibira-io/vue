@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Nuxt 2 / webpack 4: `agent.js` no longer uses a numeric separator
+  (`60_000`), which webpack 4 cannot parse.
+
 ## 0.3.0
 
 - `createHibira({ Pusher })`: the pusher-js class to open the connection
