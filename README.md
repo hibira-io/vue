@@ -144,6 +144,24 @@ environment then. On the Free plan, add your site's origin (for example
 connect. Using Nuxt? [@hibira-io/nuxt](https://github.com/hibira-io/nuxt)
 has the auth route ready to fill in.
 
+## Encrypted channels
+
+On `private-encrypted-` channels your backend encrypts each event and only
+subscribers can read it; Hibira relays ciphertext it cannot decrypt. The
+default browser build of pusher-js cannot decrypt, so pass the build that includes encryption:
+
+```js
+import Pusher from 'pusher-js/with-encryption';
+
+app.use(createHibira({ appKey, Pusher, options: { channelAuthorization: { endpoint: '/api/hibira/auth' } } }));
+```
+
+On the backend, give the `pusher` package a 32-byte key (`openssl rand -base64 32`)
+as `encryptionMasterKeyBase64`. It then encrypts what you trigger on these
+channels, and `authorizeChannel` returns the channel's key to the subscriber.
+`useEvent` and `useStream` get the decrypted data as usual. Client events
+(`useTrigger`) are not allowed on encrypted channels.
+
 ## Streaming LLM output
 
 Send the model's stream from your backend with `streamToChannel()`. It

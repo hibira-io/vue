@@ -171,3 +171,40 @@ test(`[vue ${Vue.version}] useStream rewind: a reload mid-answer, then a dropped
   unmount();
   hibira.client.disconnect();
 });
+
+test('private-encrypted- channel: events arrive decrypted with Pusher from pusher-js/with-encryption', { skip }, async () => {
+  globalThis.self ??= globalThis; // the web build expects a browser global
+  const { createRequire } = await import('node:module');
+  const EncryptedPusher = createRequire(import.meta.url)('pusher-js/with-encryption'); // bundlers resolve the bare import
+  const secure = new PusherServer({
+    appId: env.HIBIRA_E2E_APP_ID, key: env.HIBIRA_E2E_KEY, secret: env.HIBIRA_E2E_SECRET,
+    host, port: String(port), useTLS: tls, encryptionMasterKeyBase64: Buffer.alloc(32, 7).toString('base64'),
+  });
+  const config = {
+    appKey: env.HIBIRA_E2E_KEY,
+    Pusher: EncryptedPusher,
+    options: {
+      ...options('u', 'U'),
+      channelAuthorization: {
+        customHandler: ({ socketId, channelName }, cb) => cb(null, secure.authorizeChannel(socketId, channelName)),
+      },
+    },
+  };
+  const hibira = createHibira(config);
+  const pusher = hibira.client;
+  assert.ok(pusher instanceof EncryptedPusher);
+  const name = `private-encrypted-e2e-${Date.now()}`;
+  const got = [];
+  const channel = pusher.subscribe(name);
+  channel.bind('secret', (data) => got.push(data));
+  const until = async (check, what) => {
+    for (const end = Date.now() + 5000; !check(); await new Promise((r) => setTimeout(r, 20))) {
+      if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    }
+  };
+  await until(() => channel.subscribed, 'encrypted subscription');
+  await secure.trigger(name, 'secret', { diagnosis: 'fine', n: 1 });
+  await until(() => got.length === 1, 'decrypted event');
+  assert.deepEqual(got[0], { diagnosis: 'fine', n: 1 });
+  hibira.disconnect();
+});

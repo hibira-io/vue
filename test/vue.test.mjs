@@ -248,3 +248,21 @@ test(`[vue ${Vue.version}] createHibira opens pusher-js lazily with Hibira defau
   hibira.disconnect();
   assert.equal(pusher.connection.state, 'disconnected');
 });
+
+test(`[vue ${Vue.version}] createHibira opens the connection with the Pusher class it is given`, () => {
+  const made = [];
+  class Custom {
+    constructor(key, options) {
+      made.push([key, options.wsHost]);
+    }
+    disconnect() {
+      this.disconnected = true;
+    }
+  }
+  const hibira = createHibira({ appKey: 'k', Pusher: Custom });
+  const pusher = hibira.client;
+  assert.ok(pusher instanceof Custom);
+  assert.deepEqual(made, [['k', 'ws.hibira.io']]);
+  hibira.disconnect();
+  assert.equal(pusher.disconnected, true);
+});
