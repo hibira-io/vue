@@ -31,7 +31,7 @@ export const AGENT_EVENTS = [
   CHUNK_EVENT,
 ];
 
-const CHUNK_TTL = 60_000;
+const CHUNK_TTL = 60000;
 const SEEN_MAX = 5000;
 
 /**
