@@ -28,6 +28,11 @@ export interface HibiraConfig {
   options?: Partial<Options>;
   /** Use this client (or the one this returns) instead, e.g. `echo.connector.pusher`. Not disconnected by disconnect(). */
   client?: Pusher | (() => Pusher);
+  /**
+   * The pusher-js class to open the connection with. Pass the one from
+   * `pusher-js/with-encryption` to use `private-encrypted-` channels.
+   */
+  Pusher?: new (key: string, options: Options) => Pusher;
 }
 
 export interface Hibira {

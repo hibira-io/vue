@@ -1,4 +1,5 @@
 // Compiled by `npm run typecheck`, never run.
+import EncryptedPusher from 'pusher-js/with-encryption';
 import { createApp, ref } from 'vue';
 import { createHibira, useAgentStream, useChannel, useEvent, usePresence, useStream, useTrigger, useConnectionState, usePusher } from '@hibira-io/vue';
 import { streamToChannel } from '@hibira-io/vue/server';
@@ -27,3 +28,4 @@ export async function server(pusher: { trigger(c: string, e: string, d: any, x?:
   const r = await streamToChannel(pusher, 'private-ai', ['a', 'b'], { meta: { model: 'm' } });
   return r.id + r.text;
 }
+export const encrypted = createHibira({ appKey: 'key', Pusher: EncryptedPusher });
